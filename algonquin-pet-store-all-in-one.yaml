@@ -1,15 +1,29 @@
-#algonquin-pet-store-all-in-one.yaml
+# Algonquin Pet Store - Lab 6
+# This manifest defines eight Kubernetes resources: one Deployment and one
+# Service for each of RabbitMQ, Order Service, Product Service, and Store Front.
+# A Deployment manages Pods; each Pod in this lab runs one container.
+# A Service provides a stable network address and routes traffic to matching Pods.
+# Each --- line starts a new YAML document (another Kubernetes resource).
+# Resources use the namespace selected by kubectl because none is specified here.
+# The order of resources in this file does not enforce application startup order.
+# Apply with: kubectl apply -f algonquin-pet-store-all-in-one.yaml
 
-# RabbitMQ Deployment
+# 1. RabbitMQ Deployment - runs the message broker used by Order Service.
+# No persistent volume is configured; broker data can be lost when the Pod is replaced.
+# The API group and version identify the Kubernetes API used for this resource.
 apiVersion: apps/v1
 kind: Deployment
+# metadata identifies the resource; spec describes its desired configuration.
 metadata:
   name: rabbitmq
 spec:
+  # Keep one RabbitMQ Pod running.
   replicas: 1
+  # The Deployment manages Pods whose labels match this selector.
   selector:
     matchLabels:
       app: rabbitmq
+  # Template used to create Pods. Its labels must match the selector above.
   template:
     metadata:
       labels:
@@ -17,34 +31,47 @@ spec:
     spec:
       containers:
         - name: rabbitmq
+          # Docker Hub image; the management variant includes the web dashboard.
           image: rabbitmq:3-management
+          # Document the container's listening ports; this does not expose them publicly.
           ports:
-            - containerPort: 5672
-            - containerPort: 15672
+            - containerPort: 5672 # AMQP connections for sending and receiving messages.
+            - containerPort: 15672 # RabbitMQ management web dashboard.
+          # Environment variables configure the application inside the container.
+          # These are shared demo credentials for the lab.
           env:
             - name: RABBITMQ_DEFAULT_USER
               value: "myuser"
             - name: RABBITMQ_DEFAULT_PASS
               value: "mypassword"
           resources:
+            # Requests are used when scheduling Pods onto nodes.
+            # Mi means mebibytes of memory; 250m means 0.25 CPU core.
             requests:
               memory: "256Mi"
               cpu: "250m"
+            # CPU use is throttled at its limit; exceeding the memory limit can
+            # cause the container to be terminated.
             limits:
               memory: "512Mi"
               cpu: "500m"
 
 ---
-# RabbitMQ Service
+# 2. RabbitMQ Service - provides the hostname rabbitmq within this namespace.
+# Services use the core v1 API. With no type set, the default is ClusterIP,
+# which provides an internal cluster address rather than a public load balancer.
 apiVersion: v1
 kind: Service
 metadata:
   name: rabbitmq
 spec:
+  # Route traffic to Pods labeled app: rabbitmq.
   selector:
     app: rabbitmq
   ports:
+    # Each port needs a name because this Service exposes multiple ports.
     - name: amqp
+      # port is the Service's listening port; targetPort is the destination Pod port.
       port: 5672
       targetPort: 5672
     - name: management
@@ -52,13 +79,14 @@ spec:
       targetPort: 15672
 
 ---
-# Order Service Deployment
+# 3. Order Service Deployment - runs the orders API and connects it to RabbitMQ.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: order-service
 spec:
   replicas: 1
+  # Match the app label in this Deployment's Pod template.
   selector:
     matchLabels:
       app: order-service
@@ -69,15 +97,22 @@ spec:
     spec:
       containers:
         - name: order-service
+          # Repository and tag of the prebuilt image provided for this lab.
           image: ramymohamed/order-service:lab6
+          # Resolve the image tag through the registry whenever a container starts.
+          # Cached image layers can still be reused if the image has not changed.
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
           env:
             - name: RABBITMQ_CONNECTION_STRING
+              # rabbitmq is the Service hostname, not a Pod IP address.
+              # The username and password must match RabbitMQ's credentials above.
               value: "amqp://myuser:mypassword@rabbitmq:5672/"
             - name: PORT
+              # Environment variable values are strings, including numeric values.
               value: "3000"
+          # Resource requests and limits apply to this container, as above.
           resources:
             requests:
               memory: "128Mi"
@@ -87,12 +122,14 @@ spec:
               cpu: "200m"
 
 ---
-# Order Service
+# 4. Order Service - provides order-service:3000 within this namespace.
+# The default Service type is ClusterIP; Store Front can reach this internal API.
 apiVersion: v1
 kind: Service
 metadata:
   name: order-service
 spec:
+  # Select the Pods created by the Order Service Deployment.
   selector:
     app: order-service
   ports:
@@ -100,13 +137,14 @@ spec:
       targetPort: 3000
 
 ---
-# Product Service Deployment
+# 5. Product Service Deployment - runs the product catalog API.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: product-service
 spec:
   replicas: 1
+  # Match the app label in this Deployment's Pod template.
   selector:
     matchLabels:
       app: product-service
@@ -117,13 +155,16 @@ spec:
     spec:
       containers:
         - name: product-service
+          # Use the lab6 image and resolve its tag whenever a container starts.
           image: ramymohamed/product-service:lab6
           imagePullPolicy: Always
           ports:
             - containerPort: 3030
           env:
             - name: PORT
+              # Configure the application to listen on its declared container port.
               value: "3030"
+          # Resource requests help schedule the Pod; limits constrain container use.
           resources:
             requests:
               memory: "128Mi"
@@ -133,12 +174,14 @@ spec:
               cpu: "200m"
 
 ---
-# Product Service
+# 6. Product Service - provides product-service:3030 within this namespace.
+# The default Service type is ClusterIP; Store Front can reach this internal API.
 apiVersion: v1
 kind: Service
 metadata:
   name: product-service
 spec:
+  # Select the Pods created by the Product Service Deployment.
   selector:
     app: product-service
   ports:
@@ -146,13 +189,15 @@ spec:
       targetPort: 3030
 
 ---
-# Store Front (Frontend) Deployment
+# 7. Store Front Deployment - runs the website served by Nginx.
+# The image also contains the Nginx configuration used in the lab's routing exercise.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: store-front
 spec:
   replicas: 1
+  # Match the app label in this Deployment's Pod template.
   selector:
     matchLabels:
       app: store-front
@@ -163,10 +208,12 @@ spec:
     spec:
       containers:
         - name: store-front
+          # The frontend image includes the website and its web server configuration.
           image: ramymohamed/store-front:lab6
           imagePullPolicy: Always
           ports:
-            - containerPort: 80
+            - containerPort: 80 # Nginx listens for HTTP requests here.
+          # Resource requests and limits apply to the frontend container.
           resources:
             requests:
               memory: "128Mi"
@@ -176,16 +223,21 @@ spec:
               cpu: "200m"
 
 ---
-# Store Front Service
+# 8. Store Front Service - exposes the website through an Azure load balancer.
 apiVersion: v1
 kind: Service
 metadata:
   name: store-front
 spec:
+  # Send incoming traffic to Pods labeled app: store-front.
   selector:
     app: store-front
+  # On AKS, this requests a public external IP for accessing the application.
+  # View it with: kubectl get service store-front
   type: LoadBalancer
   ports:
+    # Forward traffic from Service port 80 to port 80 on the selected Pods.
     - port: 80
       targetPort: 80
+      # TCP is the transport protocol carrying these HTTP requests.
       protocol: TCP
