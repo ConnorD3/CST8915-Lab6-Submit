@@ -181,14 +181,75 @@ For this lab, focus on recognizing these parts and deploying the provided file. 
       - Use the following credentials to log in:
         - Username: myuser
         - Password: mypassword
-7. Clean Up Kubernetes Resources:
-- In this step, use the K8s deployment YAML file provided: `.
+
+7. **Explore Kubernetes in Action:**
+
+   Before cleaning up, spend a few minutes experimenting with the running Store Front. You will see where Kubernetes runs your Pods, scale the website, and watch Kubernetes replace a deleted Pod.
+
+   **A. Find your Pods and their nodes**
+
+   ```bash
+   kubectl get pods -o wide
+   kubectl get pods -l app=store-front --show-labels
+   ```
+
+   The `-o wide` option shows each Pod's IP address and node. The `-l` option selects Pods with the label `app=store-front`, matching the selector used by the Store Front Service. Compare the node names: are all application Pods running on the same node?
+
+   **B. Scale the website from one Pod to three**
+
+   ```bash
+   kubectl scale deployment/store-front --replicas=3
+   kubectl rollout status deployment/store-front --timeout=120s
+   kubectl get pods -l app=store-front -o wide
+   kubectl get service store-front
+   ```
+
+   You should now see three Store Front Pods. Refresh the website using the same external IP address. The Service keeps its address while its selector lets it route traffic to the additional Pods. Scaling creates more Pods on the existing nodes; it does not add nodes to the cluster. See the [Kubernetes scaling tutorial](https://kubernetes.io/docs/tutorials/kubernetes-basics/scale/scale-intro/).
+
+   **C. Delete one Pod and watch Kubernetes replace it**
+
+   In your first terminal, watch the Store Front Pods:
+
+   ```bash
+   kubectl get pods -l app=store-front --watch
+   ```
+
+   In a second terminal connected to the same cluster and namespace, run the following command. Replace `STORE_FRONT_POD_NAME` with the name of **one** Store Front Pod from the previous output:
+
+   ```bash
+   kubectl delete pod STORE_FRONT_POD_NAME
+   ```
+
+   Watch the first terminal: the deleted Pod disappears and a new Pod with a different name is created. Kubernetes is maintaining the Deployment's desired count of three replicas. This is an example of **self-healing**: deleting a Pod does not delete its Deployment. Press `Ctrl+C` to stop watching; this only stops the command, not the Pods. See [Kubernetes Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/).
+
+   **D. Look at the frontend logs**
+
+   ```bash
+   kubectl logs deployment/store-front --tail=20
+   ```
+
+   This prints recent container output from one of the Store Front Pods. Logs help you investigate application behavior and errors without logging in to a node.
+
+   **E. Return to one replica**
+
+   ```bash
+   kubectl scale deployment/store-front --replicas=1
+   kubectl rollout status deployment/store-front --timeout=120s
+   kubectl get pods -l app=store-front
+   ```
+
+   Kubernetes removes the extra Pods to match the new desired count. The `scale` commands changed the live Deployment; the YAML file still specifies `replicas: 1`. Allow any Pods marked `Terminating` to finish shutting down before continuing to cleanup.
+
+8. **Clean Up Kubernetes Resources:**
+
    - Open the terminal and navigate to the `algonquin-pet-store-all-in-one.yaml` file directory.
    - Run the following command to delete all resources defined in the YAML file.
       ```
       kubectl delete -f algonquin-pet-store-all-in-one.yaml
       ``` 
-8. Clean Up Azure Resources:
+
+9. **Clean Up Azure Resources:**
+
    - Delete the Primary Resource Group (AlgonquinPetStoreRG)
    - Delete the Managed Cluster Resource Group (MC_AlgonquinPetStoreRG_AlgonquinPetStoreRG_canadacentral)
    - Delete the Monitoring Resource Group (MA_defaultazuremonitorworkspace-cca_canadacentral_managed)
